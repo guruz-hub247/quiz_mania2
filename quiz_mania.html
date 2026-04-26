@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Mania</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+  
+  <style>
+    body { 
+      font-family: 'Poppins', Arial, sans-serif; 
+      background: #0a1f3d url('https://picsum.photos/id/1015/1080/1920') no-repeat center center fixed; 
+      background-size: cover; 
+      color: white; 
+      text-align: center; 
+      padding: 20px; 
+      margin: 0; 
+      min-height: 100vh;
+    }
+    h1 { 
+      color: #00d4ff; 
+      font-size: 2.2em; 
+      margin: 10px 0 5px; 
+      text-shadow: 0 2px 10px rgba(0,212,255,0.5); 
+    }
+    button { 
+      display: block; 
+      width: 90%; 
+      max-width: 420px; 
+      margin: 12px auto; 
+      padding: 16px; 
+      font-size: 18px; 
+      font-weight: 600; 
+      background: #0066cc; 
+      color: white; 
+      border: none; 
+      border-radius: 14px; 
+      cursor: pointer; 
+      transition: all 0.2s;
+      box-shadow: 0 4px 15px rgba(0,102,204,0.3);
+    }
+    button:active { 
+      background: #00bfff; 
+      transform: scale(0.96); 
+    }
+    .option-btn { 
+      background: rgba(255,255,255,0.95); 
+      color: #0a1f3d; 
+      font-weight: 600; 
+    }
+    .option-btn:active { background: #e6f0ff; }
+
+    #questionContainer {
+      background: rgba(0, 0, 0, 0.85);
+      padding: 25px 20px;
+      border-radius: 16px;
+      margin: 25px auto;
+      max-width: 500px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6);
+    }
+    #question { 
+      font-size: 23px; 
+      line-height: 1.45; 
+      margin: 0; 
+      color: white; 
+    }
+
+    #score, #timer { 
+      font-size: 22px; 
+      margin: 15px 0; 
+      font-weight: 600; 
+      background: rgba(0,0,0,0.5); 
+      padding: 10px 18px; 
+      border-radius: 12px; 
+      display: inline-block; 
+    }
+    #result { 
+      font-size: 21px; 
+      margin: 20px 0; 
+      min-height: 32px; 
+      font-weight: 500; 
+    }
+    .screen { max-width: 500px; margin: 0 auto; }
+    .hidden { display: none; }
+    .score-list { 
+      text-align: left; 
+      background: rgba(0,0,0,0.4); 
+      padding: 15px; 
+      border-radius: 12px; 
+      margin: 15px auto; 
+      max-width: 400px; 
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Welcome Screen -->
+  <div id="welcomeScreen" class="screen">
+    <h1>🎉 Quiz Mania</h1>
+    <p>Choose a mode and test your knowledge!</p>
+    
+    <button onclick="startDailyChallenge()">🔥 Daily Challenge</button>
+    <button onclick="startCategoryQuiz('')">🎲 Random Mix</button>
+    <button onclick="startCategoryQuiz('9')">🌍 General Knowledge</button>
+    <button onclick="startCategoryQuiz('11')">🎥 Movies</button>
+    <button onclick="startCategoryQuiz('21')">🏈 Sports</button>
+    <button onclick="startCategoryQuiz('22')">🌍 Geography</button>
+    <button onclick="showHistory()">📜 History (Last Scores)</button>
+    
+    <div id="highScoreDisplay" style="margin-top:25px; font-size:18px; opacity:0.9;"></div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="gameScreen" class="screen hidden">
+    <div id="score">Score: 0 / 10</div>
+    <div id="timer">Time: 15s</div>
+    <div id="questionContainer"><div id="question">Loading question...</div></div>
+    <div id="options"></div>
+    <div id="result"></div>
+    <button id="nextBtn" class="hidden" onclick="nextQuestion()">Next Question</button>
+  </div>
+
+  <!-- End Screen -->
+  <div id="endScreen" class="screen hidden">
+    <h1>Quiz Complete! 🎊</h1>
+    <div id="finalScore" style="font-size:28px; margin:25px 0; font-weight:700;"></div>
+    <div id="highScoreMsg" style="margin:15px 0; font-size:19px;"></div>
+    <button onclick="restartQuiz()">Try Again</button>
+    <button onclick="shareScore()">Share Your Score</button>
+  </div>
+
+  <!-- History Screen -->
+  <div id="historyScreen" class="screen hidden">
+    <h1>📜 Last Scores</h1>
+    <div id="scoreList" class="score-list"></div>
+    <button onclick="backToWelcome()">Back to Menu</button>
+  </div>
+
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    let score = 0;
+    let currentQuestionIndex = 0;
+    let questions = [];
+    let timerInterval = null;
+    let timeLeft = 15;
+    let highScore = localStorage.getItem('qmHigh') || 0;
+    let scoresHistory = JSON.parse(localStorage.getItem('qmHistory')) || [];
+
+    // Sound Effects
+    const correctSound = new Audio('https://www.orangefreesounds.com/wp-content/uploads/2021/04/Correct-answer-ding-sound-effect.mp3');
+    const wrongSound = new Audio('https://www.orangefreesounds.com/wp-content/uploads/2023/11/Times-up-buzzer-sound-effect.mp3');
+    const timeUpSound = new Audio('https://www.orangefreesounds.com/wp-content/uploads/2023/11/Times-up-buzzer-sound-effect.mp3');
+    const celebrationSound = new Audio('https://www.orangefreesounds.com/wp-content/uploads/2021/12/Quiz-show-background-music-loop.mp3');
+
+    // Background Music
+    const bgMusic = new Audio('https://www.orangefreesounds.com/wp-content/uploads/2021/12/Quiz-show-background-music-loop.mp3');
+    bgMusic.loop = true;
+    bgMusic.volume = 0.25;
+
+    const welcomeScreen = document.getElementById('welcomeScreen');
+    const gameScreen = document.getElementById('gameScreen');
+    const endScreen = document.getElementById('endScreen');
+    const historyScreen = document.getElementById('historyScreen');
+    const scoreEl = document.getElementById('score');
+    const timerEl = document.getElementById('timer');
+    const questionEl = document.getElementById('question');
+    const optionsEl = document.getElementById('options');
+    const resultEl = document.getElementById('result');
+    const nextBtn = document.getElementById('nextBtn');
+    const finalScoreEl = document.getElementById('finalScore');
+    const highScoreMsgEl = document.getElementById('highScoreMsg');
+    const highScoreDisplay = document.getElementById('highScoreDisplay');
+    const scoreList = document.getElementById('scoreList');
+
+    function updateHighScoreDisplay() {
+      highScoreDisplay.innerHTML = `🏆 High Score: <strong>${highScore}</strong>/10`;
+    }
+    updateHighScoreDisplay();
+
+    // Simplified and reliable score saving
+    function saveScore(finalScore) {
+      const today = new Date().toLocaleDateString('en-GB');
+      scoresHistory.unshift({ date: today, score: finalScore });
+      if (scoresHistory.length > 5) scoresHistory.pop();
+      
+      localStorage.setItem('qmHistory', JSON.stringify(scoresHistory));
+      
+      if (finalScore > highScore) {
+        highScore = finalScore;
+        localStorage.setItem('qmHigh', highScore);
+      }
+      updateHighScoreDisplay();
+    }
+
+    function showHistory() {
+      welcomeScreen.classList.add('hidden');
+      historyScreen.classList.remove('hidden');
+      scoreList.innerHTML = '';
+
+      if (scoresHistory.length === 0) {
+        scoreList.innerHTML = '<p>No scores yet.<br>Complete at least one full quiz!</p>';
+        return;
+      }
+
+      scoresHistory.forEach(entry => {
+        const div = document.createElement('div');
+        div.style.margin = '12px 0';
+        div.style.fontSize = '17px';
+        div.innerHTML = `\( ${entry.date} — <strong> \) ${entry.score}/10</strong>`;
+        scoreList.appendChild(div);
+      });
+    }
+
+    function backToWelcome() {
+      historyScreen.classList.add('hidden');
+      welcomeScreen.classList.remove('hidden');
+    }
+
+    function startDailyChallenge() {
+      const today = new Date().toISOString().slice(0,10);
+      if (localStorage.getItem('dailyChallengeDate') === today) {
+        alert("You've already completed today's Daily Challenge!");
+        return;
+      }
+      welcomeScreen.classList.add('hidden');
+      gameScreen.classList.remove('hidden');
+      fetch('https://opentdb.com/api.php?amount=10&type=multiple')
+        .then(res => res.json())
+        .then(data => {
+          questions = data.results;
+          localStorage.setItem('dailyChallengeDate', today);
+          bgMusic.play().catch(() => {});
+          showQuestion();
+        })
+        .catch(() => alert("Failed to load questions. Check your internet."));
+    }
+
+    function startCategoryQuiz(category) {
+      score = 0;
+      currentQuestionIndex = 0;
+      welcomeScreen.classList.add('hidden');
+      gameScreen.classList.remove('hidden');
+      let url = 'https://opentdb.com/api.php?amount=10&type=multiple';
+      if (category) url += `&category=${category}`;
+      
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          questions = data.results;
+          bgMusic.play().catch(() => {});
+          showQuestion();
+        })
+        .catch(() => alert("Failed to load questions. Check your internet."));
+    }
+
+    function showQuestion() {
+      if (currentQuestionIndex >= questions.length) {
+        endQuiz();
+        return;
+      }
+      clearInterval(timerInterval);
+      timeLeft = 15;
+      timerEl.textContent = `Time: ${timeLeft}s`;
+
+      const q = questions[currentQuestionIndex];
+      questionEl.textContent = q.question.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
+
+      optionsEl.innerHTML = '';
+      resultEl.textContent = '';
+      nextBtn.classList.add('hidden');
+
+      const allAnswers = [...q.incorrect_answers, q.correct_answer];
+      allAnswers.sort(() => Math.random() - 0.5);
+
+      allAnswers.forEach(answer => {
+        const btn = document.createElement('button');
+        btn.classList.add('option-btn');
+        btn.textContent = answer.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, '&');
+        btn.onclick = () => selectAnswer(btn, answer, q.correct_answer);
+        optionsEl.appendChild(btn);
+      });
+
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        timerEl.textContent = `Time: ${timeLeft}s`;
+        if (timeLeft <= 0) timeUp();
+      }, 1000);
+    }
+
+    function selectAnswer(clickedBtn, selected, correct) {
+      clearInterval(timerInterval);
+      const allBtns = optionsEl.getElementsByTagName('button');
+      for (let btn of allBtns) btn.disabled = true;
+
+      if (selected === correct) {
+        score++;
+        resultEl.innerHTML = "✅ Correct!";
+        resultEl.style.color = "#00ff88";
+        clickedBtn.style.background = "#00cc66";
+        correctSound.currentTime = 0; correctSound.play().catch(() => {});
+      } else {
+        resultEl.innerHTML = `❌ Wrong! Correct: ${correct}`;
+        resultEl.style.color = "#ff6666";
+        clickedBtn.style.background = "#ff4444";
+        wrongSound.currentTime = 0; wrongSound.play().catch(() => {});
+      }
+
+      scoreEl.textContent = `Score: ${score} / 10`;
+      nextBtn.classList.remove('hidden');
+    }
+
+    function timeUp() {
+      const allBtns = optionsEl.getElementsByTagName('button');
+      for (let btn of allBtns) btn.disabled = true;
+      resultEl.innerHTML = "⏰ Time's up!";
+      resultEl.style.color = "#ffaa00";
+      timeUpSound.currentTime = 0; timeUpSound.play().catch(() => {});
+      nextBtn.classList.remove('hidden');
+    }
+
+    function nextQuestion() {
+      currentQuestionIndex++;
+      showQuestion();
+    }
+
+    function endQuiz() {
+      clearInterval(timerInterval);
+      bgMusic.pause();
+      bgMusic.currentTime = 0;
+      gameScreen.classList.add('hidden');
+      endScreen.classList.remove('hidden');
+
+      finalScoreEl.textContent = `You scored ${score} out of 10!`;
+      saveScore(score);   // Save the score reliably
+
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('qmHigh', highScore);
+        highScoreMsgEl.innerHTML = `🎉 New High Score! 🏆`;
+        highScoreMsgEl.style.color = "#ffd700";
+        celebrationSound.currentTime = 0; celebrationSound.play().catch(() => {});
+        triggerConfetti();
+      } else if (score >= 7) {
+        highScoreMsgEl.innerHTML = `Great job! 👏`;
+        celebrationSound.currentTime = 0; celebrationSound.play().catch(() => {});
+        triggerConfetti();
+      } else {
+        highScoreMsgEl.innerHTML = `Better luck next time!`;
+      }
+      updateHighScoreDisplay();
+    }
+
+    function triggerConfetti() {
+      confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+    }
+
+    function restartQuiz() {
+      endScreen.classList.add('hidden');
+      welcomeScreen.classList.remove('hidden');
+      bgMusic.pause();
+    }
+
+    function shareScore() {
+      const text = `I scored ${score}/10 in Quiz Mania! 🎉 Can you beat me? Play now:`;
+      const url = window.location.href;
+      const tgLink = `https://t.me/share/url?url=\( ${encodeURIComponent(url)}&text= \)${encodeURIComponent(text)}`;
+      window.open(tgLink, '_blank');
+    }
+
+    // Initial setup
+    updateHighScoreDisplay();
+  </script>
+</body>
+</html>
